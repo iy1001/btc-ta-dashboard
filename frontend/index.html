@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTC 技术分析</title>
+<script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
+.container { max-width: 1200px; margin: 0 auto; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+h1 { font-size: 24px; color: #f0b90b; }
+h1 span { color: #8b949e; font-size: 14px; }
+.price-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; gap: 24px; flex-wrap: wrap; }
+.price-item { }
+.price-label { font-size: 12px; color: #8b949e; }
+.price-value { font-size: 20px; font-weight: 600; }
+.price-change { font-size: 14px; }
+.up { color: #3fb950; }
+.down { color: #f85149; }
+.controls { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.controls button { padding: 6px 16px; border: 1px solid #30363d; border-radius: 6px; background: #21262d; color: #c9d1d9; cursor: pointer; font-size: 13px; }
+.controls button:hover { background: #30363d; }
+.controls button.active { background: #f0b90b; color: #0d1117; border-color: #f0b90b; font-weight: 600; }
+.chart-container { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+.chart-title { font-size: 12px; color: #8b949e; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+.signal-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; gap: 16px; flex-wrap: wrap; }
+.signal-badge { padding: 8px 20px; border-radius: 20px; font-weight: 700; font-size: 18px; display: inline-flex; align-items: center; gap: 8px; }
+.signal-buy { background: rgba(63,185,80,0.15); color: #3fb950; border: 1px solid #3fb950; }
+.signal-sell { background: rgba(248,81,73,0.15); color: #f85149; border: 1px solid #f85149; }
+.signal-wait { background: rgba(139,148,158,0.15); color: #c9d1d9; border: 1px solid #30363d; }
+.signals-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.signals-list span { background: #21262d; padding: 4px 10px; border-radius: 12px; font-size: 12px; }
+.analysis-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.analysis-box h3 { color: #f0b90b; margin-bottom: 8px; }
+.analysis-content { line-height: 1.7; font-size: 14px; }
+.analysis-content p { margin-bottom: 8px; }
+.loading { color: #8b949e; text-align: center; padding: 40px; }
+.error { color: #f85149; text-align: center; padding: 20px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>₿ BTC 技术分析 <span id="intervalLabel">1h级别</span></h1>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button onclick="window.location.reload()" style="padding:6px 16px;border:1px solid #30363d;border-radius:6px;background:#21262d;color:#c9d1d9;cursor:pointer">⟳ 刷新</button>
+    </div>
+  </div>
+
+  <div class="controls" id="intervalBtns">
+    <button data-interval="15m">15分钟</button>
+    <button data-interval="1h" class="active">1小时</button>
+    <button data-interval="4h">4小时</button>
+    <button data-interval="1d">日线</button>
+  </div>
+
+  <div id="priceBox" class="price-box"></div>
+  <div id="signalBox" class="signal-box"></div>
+
+  <div class="chart-container">
+    <div class="chart-title">K线 · 均线 · 布林带</div>
+    <div id="mainChart" style="height:450px"></div>
+  </div>
+  <div class="chart-container">
+    <div class="chart-title">RSI (14)</div>
+    <div id="rsiChart" style="height:150px"></div>
+  </div>
+  <div class="chart-container">
+    <div class="chart-title">MACD (12,26,9)</div>
+    <div id="macdChart" style="height:150px"></div>
+  </div>
+
+  <div id="analysisBox" class="analysis-box">
+    <h3>🤖 AI 分析</h3>
+    <div id="analysisContent" class="analysis-content loading">加载中…</div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+let interval = '1h';
+let charts = {};
+
+function initCharts() {
+  charts.main = LightweightCharts.createChart(document.getElementById('mainChart'), {
+    layout: { background: { color: '#161b22' }, textColor: '#8b949e' },
+    grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    timeScale: { timeVisible: true, borderColor: '#30363d' },
+    rightPriceScale: { borderColor: '#30363d' },
+  });
+  charts.rsi = LightweightCharts.createChart(document.getElementById('rsiChart'), {
+    layout: { background: { color: '#161b22' }, textColor: '#8b949e' },
+    grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+    timeScale: { visible: false },
+    rightPriceScale: { borderColor: '#30363d', scaleMargins: { top: 0.1, bottom: 0.1 } },
+  });
+  charts.macd = LightweightCharts.createChart(document.getElementById('macdChart'), {
+    layout: { background: { color: '#161b22' }, textColor: '#8b949e' },
+    grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+    timeScale: { visible: false },
+    rightPriceScale: { borderColor: '#30363d' },
+  });
+}
+
+function renderChart(data) {
+  const d = data.data;
+
+  // Price box
+  const priceInfo = [
+    { label: 'BTC/USDT', value: `$${d.current_price.toLocaleString()}`, cls: '' },
+    { label: '24h涨跌', value: `${d.change_24h_pct >= 0 ? '+' : ''}${d.change_24h_pct}%`, cls: d.change_24h_pct >= 0 ? 'up' : 'down' },
+    { label: '24h高', value: `$${d.high_24h.toLocaleString()}`, cls: '' },
+    { label: '24h低', value: `$${d.low_24h.toLocaleString()}`, cls: '' },
+    { label: '24h成交量', value: `${(d.volume_24h / 1000000).toFixed(1)}M USD`, cls: '' },
+  ];
+  document.getElementById('priceBox').innerHTML = priceInfo.map(p => 
+    `<div class="price-item"><div class="price-label">${p.label}</div><div class="price-value ${p.cls}">${p.value}</div></div>`
+  ).join('');
+
+  // Signal box
+  const sig = d.signal;
+  const badgeCls = sig.suggestion === '买入' ? 'signal-buy' : sig.suggestion === '卖出' ? 'signal-sell' : 'signal-wait';
+  document.getElementById('signalBox').innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div class="signal-badge ${badgeCls}">${sig.suggestion} (${sig.strength})</div>
+      <div style="font-size:13px;color:#8b949e">Score: ${sig.score > 0 ? '+' : ''}${sig.score} · RSI: ${sig.rsi}</div>
+      <div class="signals-list">${sig.signals.map(s => `<span>${s}</span>`).join('')}</div>
+    </div>
+  `;
+
+  // Main chart - candles
+  const candleSeries = charts.main.addCandlestickSeries({
+    upColor: '#3fb950', downColor: '#f85149', borderUpColor: '#3fb950', borderDownColor: '#f85149',
+    wickUpColor: '#3fb950', wickDownColor: '#f85149',
+  });
+  candleSeries.setData(d.candles);
+
+  // SMA lines
+  if (d.indicators.SMA_20) {
+    charts.main.addLineSeries({ color: '#58a6ff', lineWidth: 1, priceLineVisible: false }).setData(d.indicators.SMA_20);
+  }
+  if (d.indicators.SMA_50) {
+    charts.main.addLineSeries({ color: '#f0883e', lineWidth: 1, priceLineVisible: false }).setData(d.indicators.SMA_50);
+  }
+  // Bollinger Bands
+  if (d.indicators.BB_Upper) {
+    const bbColor = 'rgba(139,148,158,0.3)';
+    charts.main.addLineSeries({ color: bbColor, lineWidth: 1, priceLineVisible: false }).setData(d.indicators.BB_Upper);
+    charts.main.addLineSeries({ color: bbColor, lineWidth: 1, priceLineVisible: false }).setData(d.indicators.BB_Lower);
+  }
+
+  charts.main.timeScale().fitContent();
+
+  // RSI chart
+  const rsiLine = charts.rsi.addLineSeries({ color: '#7ee787', lineWidth: 2, priceLineVisible: false });
+  rsiLine.setData(d.rsi_data);
+  // RSI levels
+  charts.rsi.addLineSeries({ color: 'rgba(248,81,73,0.3)', lineWidth: 1, priceLineVisible: false }).setData(
+    d.rsi_data.map(r => ({ time: r.time, value: 70 }))
+  );
+  charts.rsi.addLineSeries({ color: 'rgba(63,185,80,0.3)', lineWidth: 1, priceLineVisible: false }).setData(
+    d.rsi_data.map(r => ({ time: r.time, value: 30 }))
+  );
+  charts.rsi.timeScale().fitContent();
+
+  // MACD chart
+  const macdSeries = charts.macd.addHistogramSeries({ priceFormat: { type: 'volume' }, priceLineVisible: false });
+  const macdData = d.macd_data.map(m => ({ time: m.time, value: m.histogram, color: m.histogram >= 0 ? 'rgba(63,185,80,0.5)' : 'rgba(248,81,73,0.5)' }));
+  macdSeries.setData(macdData);
+  charts.macd.addLineSeries({ color: '#58a6ff', lineWidth: 2, priceLineVisible: false }).setData(
+    d.macd_data.map(m => ({ time: m.time, value: m.macd }))
+  );
+  charts.macd.addLineSeries({ color: '#f0883e', lineWidth: 2, priceLineVisible: false }).setData(
+    d.macd_data.map(m => ({ time: m.time, value: m.signal }))
+  );
+  charts.macd.timeScale().fitContent();
+
+  // Interval label
+  const labels = { '15m': '15分钟', '1h': '1小时', '4h': '4小时', '1d': '日线' };
+  document.getElementById('intervalLabel').textContent = labels[d.interval] + '级别';
+}
+
+async function loadData() {
+  try {
+    const resp = await fetch(`${API}/api/btc/overview?interval=${interval}`);
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error);
+    renderChart(data);
+  } catch (e) {
+    document.querySelector('.loading') && (document.querySelector('.loading').textContent = '❌ ' + e.message);
+  }
+  try {
+    const resp = await fetch(`${API}/api/btc/analysis?interval=${interval}`);
+    const data = await resp.json();
+    if (data.success) {
+      document.getElementById('analysisContent').innerHTML = 
+        `<div style="white-space:pre-wrap;line-height:1.7">${data.data.analysis}</div>`;
+    }
+  } catch(e) {
+    document.getElementById('analysisContent').innerHTML = `<div class="error">AI分析暂不可用: ${e.message}</div>`;
+  }
+}
+
+// Interval switching
+document.getElementById('intervalBtns').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#intervalBtns button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  interval = btn.dataset.interval;
+  // Clear & reload
+  document.querySelectorAll('.chart-container canvas').forEach(c => c.remove());
+  Object.values(charts).forEach(c => c && c.remove());
+  charts = {};
+  initCharts();
+  loadData();
+});
+
+window.onload = () => { initCharts(); loadData(); };
+</script>
+</body>
+</html>
