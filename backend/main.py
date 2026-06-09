@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from collections import defaultdict
 
 app = FastAPI(title="BTC TA Analyzer", version="0.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -24,7 +25,7 @@ INTERVALS = {"15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
 
 def fetch_klines(symbol="BTCUSDT", interval="1h", limit=500):
     url = f"{BINANCE_URL}/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Hermes-BTC-TA/0.2"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Hermes-BTC-TA/0.3"})
     resp = urllib.request.urlopen(req, timeout=15)
     data = json.loads(resp.read())
     rows = []
@@ -34,6 +35,8 @@ def fetch_klines(symbol="BTCUSDT", interval="1h", limit=500):
             "datetime": datetime.fromtimestamp(k[0] / 1000),
             "open": float(k[1]), "high": float(k[2]), "low": float(k[3]),
             "close": float(k[4]), "volume": float(k[5]),
+            "quote_vol": float(k[7]), "trades": int(k[8]),
+            "taker_buy_vol": float(k[9]), "taker_buy_quote": float(k[10]),
         })
     return rows
 
@@ -560,9 +563,38 @@ def get_llm_analysis(interval: str = Query("1h", regex="^(15m|1h|4h|1d)$")):
         return {"success": False, "error": str(e)}
 
 
+@app.get("/api/btc/orderflow")
+def get_orderflow():
+    """Order flow and depth analysis."""
+    try:
+        raw = fetch_klines("BTCUSDT", "1h", 48)
+        df = pd.DataFrame(raw)
+        # Delta approximation
+        df["Delta"] = df["taker_buy_quote"] - (df["quote_vol"] - df["taker_buy_quote"])
+        df["CVD"] = df["Delta"].cumsum()
+        df["Delta_Pct"] = df["Delta"] / df["quote_vol"] * 100
+        
+        depth_url = "https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=20"
+        depth_req = urllib.request.Request(depth_url, headers={"User-Agent": "BTC-TA/0.3"})
+        depth_data = json.loads(urllib.request.urlopen(depth_req, timeout=10).read())
+        bids = sum(float(b[1]) for b in depth_data["bids"])
+        asks = sum(float(a[1]) for a in depth_data["asks"])
+        imbalance = round((bids - asks) / (bids + asks) * 100, 2)
+        
+        last = df.iloc[-1]
+        return {"success": True, "data": {
+            "depth_imbalance": imbalance,
+            "bid_volume": round(bids, 2), "ask_volume": round(asks, 2),
+            "cvd": float(last["CVD"]),
+            "delta_pct": float(last["Delta_Pct"]),
+            "buy_pct": float(last["taker_buy_quote"] / last["quote_vol"] * 100),
+        }}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.2.0"}
+    return {"status": "ok", "version": "0.3.0"}
 
 # Serve frontend
 import os
