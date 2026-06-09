@@ -18,7 +18,7 @@ def create_app() -> FastAPI:
     app.include_router(btc_router)
 
     # Serve frontend static files
-    frontend_dir = os.path.join(os.path.dirname(__file__), "..", "..", "frontend")
+    frontend_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend")
     frontend_dir = os.path.normpath(frontend_dir)
     if os.path.exists(frontend_dir):
         app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
